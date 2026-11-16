@@ -20,7 +20,7 @@ Install from Obsidian Community Plugins: open **Settings → Community plugins**
 Manual installation:
 
 1. In Obsidian, open **Settings → Community plugins → Open plugins folder** (this is `<vault>/.obsidian/plugins/`).
-2. Create a subfolder named `DuoAI-assistant`.
+2. Create a subfolder named `duoai-assistant`.
 3. Copy `main.js`, `manifest.json`, and `styles.css` from this repository into it.
 4. Restart Obsidian and enable **DuoAI Assistant** under Community plugins.
 

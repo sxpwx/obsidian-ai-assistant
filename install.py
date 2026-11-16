@@ -10,7 +10,7 @@ try:
 except Exception:
     pass
 
-PLUGIN_ID = 'ai-assistant'
+PLUGIN_ID = 'duoai-assistant'
 FILES = ['main.js', 'manifest.json', 'styles.css']
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -81,7 +81,7 @@ def main():
     if not config:
         print('未找到 Obsidian 配置文件（%APPDATA%\\obsidian\\obsidian.json）。')
         print('请手动把本文件夹中的 main.js / manifest.json / styles.css 复制到')
-        print('Vault 目录下的 .obsidian/plugins/ai-assistant/ 文件夹中。')
+        print('Vault 目录下的 .obsidian/plugins/duoai-assistant/ 文件夹中。')
         return
     vaults = get_vaults(config)
     chosen = choose_vault(vaults)
