@@ -193,17 +193,17 @@ class AIAssistantPlugin extends Plugin {
   /** 记录自动续写诊断信息（内存 + 文件），便于排查功能为何未生效 */
   recordGhostDiag(msg) {
     this.ghostDiag = msg;
-    console.log('[AI 自动续写]', msg);
     if (!this._ghostLogs) this._ghostLogs = [];
     this._ghostLogs.push(`[${new Date().toLocaleTimeString('zh-CN')}] ${msg}`);
     if (this._ghostLogs.length > 100) this._ghostLogs.shift();
-    this.flushGhostDiag();
+    // 仅在用户主动执行「诊断」命令时写文件，避免日常使用往 vault 里产生垃圾文件
   }
 
   async flushGhostDiag() {
     try {
       const text = (this._ghostLogs || []).join('\n') + '\n';
-      await this.app.vault.adapter.write('.obsidian/plugins/ai-assistant/ghost-diag.txt', text);
+      const path = `.obsidian/plugins/${this.manifest.id}/ghost-diag.txt`;
+      await this.app.vault.adapter.write(path, text);
     } catch (e) {
       // 诊断文件写入失败不影响功能
     }

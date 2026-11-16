@@ -1,80 +1,79 @@
-# AI 助手（Obsidian 插件）
+# DuoAI Assistant
 
-一个可自定义大模型 API 地址与 Key 的 Obsidian 插件，兼容任何 OpenAI Chat Completions 风格的接口。
+An Obsidian plugin that lets you use any custom OpenAI-compatible LLM API. Configure your own endpoint, API key, and model, then generate continuations, summaries, translations, and polished text right inside your notes.
 
-## 功能
+## Features
 
-- 自定义 API Base URL、API Key、模型名、温度、最大 Token、系统提示词、超时时间
-- 内置服务商预设：OpenAI / DeepSeek / 通义千问 / Kimi / 智谱 GLM / Ollama 本地 / 自定义
-- 文本处理：总结、翻译、润色、解释（选中文本后通过命令面板或右键菜单调用）
-- 续写：基于光标前内容续写
-- **光标停留自动续写**：光标静止 10 秒后，自动在光标处以半透明文字显示续写建议，按 `Tab` 接受、按 `Esc` 放弃（可在设置中开关和调整等待时间）
-- 自定义提示词：用 `{{text}}` 占位符指代选中文本
-- AI 问答：弹窗提问，回答可复制或插入当前笔记
-- 设置面板提供「测试连接」按钮
+- Bring your own model: custom API base URL, API key, model name, temperature, max tokens, system prompt, and timeout
+- Built-in provider presets: OpenAI, DeepSeek, Qwen, Kimi, Zhipu GLM, local Ollama, or fully custom
+- Text actions on selection: summarize, translate, polish, and explain
+- Continue writing from the text before the cursor
+- Ghost-text completion: after the cursor rests for a configurable delay, a semi-transparent suggestion appears at the cursor. Press `Tab` to accept or `Esc` to dismiss. Any typing or cursor move clears it.
+- Custom prompts with a `{{text}}` placeholder for the selected text
+- Ask AI: a dialog for free-form questions; copy or insert the answer into the current note
+- A "Test connection" button in settings
 
-## 安装
+## Installation
 
-### 方法一：自动安装（推荐）
+Install from Obsidian Community Plugins: open **Settings → Community plugins**, browse for **DuoAI Assistant**, then install and enable it.
 
-1. 确保本机已安装 Python 3
-2. 运行 `install.py`（双击或在命令行执行 `python install.py`）
-3. 按提示选择要安装的 Vault（可输入 `0` 安装到全部 Vault）
-4. 重启 Obsidian，在「设置 → 第三方插件」中启用「AI 助手」
+Manual installation:
 
-### 方法二：手动安装
+1. In Obsidian, open **Settings → Community plugins → Open plugins folder** (this is `<vault>/.obsidian/plugins/`).
+2. Create a subfolder named `DuoAI-assistant`.
+3. Copy `main.js`, `manifest.json`, and `styles.css` from this repository into it.
+4. Restart Obsidian and enable **DuoAI Assistant** under Community plugins.
 
-1. 打开 Obsidian「设置 → 第三方插件 → 打开插件文件夹」，即 Vault 目录下的 `.obsidian/plugins/`
-2. 新建一个名为 `ai-assistant` 的子文件夹
-3. 把本文件夹中的 `main.js`、`manifest.json`、`styles.css` 三个文件复制进去
-4. 重启 Obsidian，在「设置 → 第三方插件」中启用「AI 助手」
+## Configuration
 
-## 配置
+Open **Settings → Community plugins → DuoAI Assistant**:
 
-打开「设置 → 第三方插件 → AI 助手」：
+1. Pick a provider preset (or choose **Custom** to fill everything manually).
+2. Enter the API base URL (**without** the `/chat/completions` suffix).
+3. Enter your API key.
+4. Enter the model name.
+5. Click **Test connection** to verify.
 
-1. 在「服务商预设」中选择一个服务商（或选「自定义」自行填写）
-2. 填写 API 地址（Base URL，**不要**包含 `/chat/completions`）
-3. 填写 API Key
-4. 填写模型名称
-5. 点击「测试连接」验证配置是否正确
+Common base URLs (may change; check the provider's official docs):
 
-常见接口地址参考（可能调整，请以服务商官方文档为准）：
-
-| 服务商 | Base URL | 模型示例 |
+| Provider | Base URL | Example model |
 | --- | --- | --- |
 | OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` |
 | DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` |
-| 通义千问 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-plus` |
+| Qwen | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-plus` |
 | Kimi | `https://api.moonshot.cn/v1` | `moonshot-v1-8k` |
-| 智谱 GLM | `https://open.bigmodel.cn/api/paas/v4` | `glm-4-flash` |
-| Ollama 本地 | `http://localhost:11434/v1` | `llama3` |
+| Zhipu GLM | `https://open.bigmodel.cn/api/paas/v4` | `glm-4-flash` |
+| Ollama (local) | `http://localhost:11434/v1` | `llama3` |
 
-> 使用本地 Ollama 时，API Key 可随意填写一个占位值（如 `ollama`），并保证已运行 `ollama serve`。
+When using local Ollama, you can put any placeholder value in the API key field (for example `ollama`) and make sure `ollama serve` is running.
 
-## 使用
+## Usage
 
-- **命令面板**（`Ctrl/Cmd + P`）：搜索 `AI:`，可找到总结、翻译、润色、解释、续写、自定义提示词、向 AI 提问等命令
-- **右键菜单**：右键点击即可看到「AI: 续写」（无需选中文字，基于光标前内容）；选中一段文字后右键还会出现总结/翻译/润色/解释/自定义提示词
-- **续写**：把光标放在段落末尾，执行「AI: 续写」（命令面板或右键均可）
-- **光标停留自动续写**：在笔记编辑模式下把光标停在某处不动，默认 10 秒后光标处会出现半透明的续写文字；按 `Tab` 把它插入正文，按 `Esc` 放弃；一旦继续输入或移动光标，建议会立即消失。设置里的「自动续写等待时间」一行：开关控制是否启用，输入框调整等待时长；关闭开关时输入框变灰不可填。修改后立即生效，无需重开笔记
-- **AI: 立即测试幽灵续写**：不用等 10 秒，马上对当前光标触发一次续写，用于快速验证功能
-- **AI: 诊断自动续写**：把每一步的运行状态写入插件目录下的 `ghost-diag.txt`（CM 模块是否可用、编辑器是否找到、请求是否发出、结果为何被丢弃等），功能异常时可用它排查
-- **自定义提示词**：在弹窗中用 `{{text}}` 代表选中文本；若不写占位符，选中文本会自动附在提示词末尾
-- **快捷键**：在 Obsidian「设置 → 快捷键」中搜索 `AI:`，为常用命令绑定快捷键
+- **Command palette** (`Ctrl/Cmd + P`): search `AI:` for summarize, translate, polish, explain, continue writing, custom prompt, and ask AI.
+- **Context menu**: right-click anywhere to get **AI: Continue writing** (no selection needed, uses the text before the cursor). With text selected, you'll also get summarize, translate, polish, explain, and custom prompt.
+- **Ghost-text completion**: in edit mode, rest the cursor at a spot. After the configured delay (10 seconds by default), a semi-transparent suggestion appears; `Tab` inserts it and `Esc` dismisses it. In settings, the **Auto-completion wait time** row has a toggle to enable/disable and a field to set the delay. Changes apply immediately.
+- **AI: Test ghost completion now**: trigger a completion immediately instead of waiting, to verify the feature.
+- **AI: Diagnose ghost completion**: writes step-by-step status to `ghost-diag.txt` in the plugin folder for troubleshooting.
+- **Custom prompt**: use `{{text}}` for the selected text. If you don't include the placeholder, the selection is appended automatically.
+- **Hotkeys**: search `AI:` under Settings → Hotkeys to bind your favorites.
 
-## 常见问题
+## FAQ
 
-- **提示 401**：API Key 错误，或该 Key 无权访问所选模型
-- **提示 404**：API 地址填写不正确，注意不要带 `/chat/completions` 后缀
-- **请求超时**：调大「请求超时」设置，或检查网络与代理
-- **没有反应**：确认插件已在「第三方插件」中启用，且已填写 API 地址与 Key
+- **401**: API key is wrong, or the key has no access to the selected model.
+- **404**: API base URL is incorrect. Do not include the `/chat/completions` suffix.
+- **Request timeout**: increase the timeout setting, or check your network/proxy.
+- **No response**: make sure the plugin is enabled and the API URL and key are filled in.
 
-## 文件说明
+## Files
 
-| 文件 | 用途 |
+| File | Purpose |
 | --- | --- |
-| `main.js` | 插件主程序 |
-| `manifest.json` | 插件元数据 |
-| `styles.css` | 界面样式 |
-| `install.py` | 自动安装脚本 |
+| `main.js` | Plugin entry point |
+| `manifest.json` | Plugin metadata |
+| `styles.css` | Styles |
+| `versions.json` | Plugin-to-Obsidian version compatibility map |
+| `install.py` | Optional local install helper (not required for community install) |
+
+## License
+
+MIT
