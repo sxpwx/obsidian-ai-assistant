@@ -1,0 +1,9 @@
+{
+  "id": "ai-assistant",
+  "name": "AI 助手（自定义大模型）",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "自定义大模型 API 地址与 Key，支持续写、总结、翻译、润色、自定义提示词与 AI 问答。",
+  "author": "WorkBuddy",
+  "isDesktopOnly": false
+}
