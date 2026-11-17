@@ -458,7 +458,8 @@ class AIAssistantPlugin extends Plugin {
       body = {
         model: s.model,
         max_tokens: s.maxTokens,
-        temperature: s.temperature,
+        // Anthropic 的温度上限为 1，超出会被 400 拒绝
+        temperature: Math.max(0, Math.min(1, Number(s.temperature) || 0)),
         messages: messages
           .filter((m) => m && m.role !== 'system')
           .map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
