@@ -53,6 +53,7 @@ const DEFAULT_SETTINGS = {
   // 光标停留自动续写（幽灵文本）
   ghostEnabled: true,
   ghostDelayMs: 10000,
+  ghostAcceptKey: 'Space',
 };
 
 class AIAssistantPlugin extends Plugin {
@@ -225,7 +226,7 @@ class AIAssistantPlugin extends Plugin {
 
   /**
    * 注册光标停留自动续写：光标静止 N 秒后，把续写内容以半透明幽灵文本显示在光标处，
-   * 按 Tab 接受、Esc 放弃。基于 CodeMirror 6 编辑器扩展实现。
+   * 按自定义按键（默认空格）接受、Esc 放弃。基于 CodeMirror 6 编辑器扩展实现。
    */
   registerGhostCompletion() {
     let stateMod = null;
@@ -369,7 +370,7 @@ class AIAssistantPlugin extends Plugin {
         }
         try {
           view.dispatch({ effects: setGhost.of({ text: String(result).trim(), pos }) });
-          plugin.recordGhostDiag(`幽灵文本已显示（${String(result).length} 字），按 Tab 接受 / Esc 放弃`);
+          plugin.recordGhostDiag(`幽灵文本已显示（${String(result).length} 字），按 ${plugin.settings.ghostAcceptKey || 'Space'} 接受 / Esc 放弃`);
         } catch (e) {
           plugin.recordGhostDiag('显示幽灵文本失败：' + (e && e.message ? e.message : String(e)));
         }
@@ -379,31 +380,52 @@ class AIAssistantPlugin extends Plugin {
       }
     });
 
-    // 高优先级按键：Tab 接受、Esc 放弃
-    const ghostKeys = Prec.highest(keymap.of([
-      {
-        key: 'Tab',
-        run: (view) => {
-          const ghost = view.state.field(ghostField);
-          if (!ghost || !ghost.text) return false;
-          view.dispatch({
-            changes: { from: ghost.pos, insert: ghost.text },
-            selection: EditorSelection.cursor(ghost.pos + ghost.text.length),
-            effects: clearGhost.of(null),
-          });
-          return true;
-        },
-      },
-      {
-        key: 'Escape',
-        run: (view) => {
-          const ghost = view.state.field(ghostField);
-          if (!ghost || !ghost.text) return false;
+    // 接受键可自定义：把按键描述（如 Space / Tab / Ctrl+Enter）解析为修饰键 + 主键
+    const KEY_ALIASES = {
+      space: ' ', spacebar: ' ', tab: 'Tab', enter: 'Enter', return: 'Enter',
+      esc: 'Escape', escape: 'Escape', backspace: 'Backspace',
+      delete: 'Delete', arrowup: 'ArrowUp', arrowdown: 'ArrowDown',
+      arrowleft: 'ArrowLeft', arrowright: 'ArrowRight',
+    };
+    const matchesAcceptKey = (event, spec) => {
+      const parts = String(spec || '').trim().split('+').map((p) => p.trim().toLowerCase()).filter(Boolean);
+      if (!parts.length) return false;
+      const key = parts.pop();
+      const wantCtrl = parts.some((p) => ['ctrl', 'control', 'cmd', 'meta'].includes(p));
+      const wantAlt = parts.some((p) => ['alt', 'option'].includes(p));
+      const wantShift = parts.some((p) => p === 'shift');
+      if (wantCtrl !== (event.ctrlKey || event.metaKey)) return false;
+      if (wantAlt !== event.altKey) return false;
+      if (wantShift !== event.shiftKey) return false;
+      const expected = KEY_ALIASES[key] || key;
+      if (expected.length === 1) return event.key.toLowerCase() === expected.toLowerCase();
+      return event.key === expected;
+    };
+
+    // 高优先级按键：自定义键接受、Esc 放弃。
+    // 用 domEventHandlers 而非固定 keymap，这样任意键/组合键都能在设置里即时生效。
+    const ghostKeys = Prec.highest(EditorView.domEventHandlers({
+      keydown: (event, view) => {
+        const ghost = view.state.field(ghostField);
+        if (!ghost || !ghost.text) return false;
+        // 中文输入法组字期间不拦截，否则选字空格会被误判为“接受”
+        if (event.isComposing || event.keyCode === 229) return false;
+        if (event.key === 'Escape') {
+          event.preventDefault();
           view.dispatch({ effects: clearGhost.of(null) });
           return true;
-        },
+        }
+        if (!matchesAcceptKey(event, plugin.settings.ghostAcceptKey)) return false;
+        event.preventDefault();
+        event.stopPropagation();
+        view.dispatch({
+          changes: { from: ghost.pos, insert: ghost.text },
+          selection: EditorSelection.cursor(ghost.pos + ghost.text.length),
+          effects: clearGhost.of(null),
+        });
+        return true;
       },
-    ]));
+    }));
 
     // 保存扩展引用，供设置变更时遍历所有编辑器重新计时
     plugin._ghostIdleTrigger = idleTrigger;
@@ -990,8 +1012,8 @@ class AIAssistantSettingTab extends PluginSettingTab {
     let delayText;
     setBiDesc(
       new Setting(containerEl).setName(bi('自动续写等待时间', 'Auto-completion delay')),
-      '开关：是否启用光标停留自动续写（启用后在光标处显示半透明建议，Tab 接受、Esc 放弃）。输入框：光标静止多久后触发，单位毫秒，默认 10000（10 秒），最小 1000。修改后立即生效。',
-      'Toggle: enable ghost-text completion when the cursor is idle (Tab to accept, Esc to dismiss). Field: idle delay in milliseconds, default 10000, minimum 1000. Changes apply immediately.'
+      '开关：是否启用光标停留自动续写（启用后在光标处显示半透明建议，按下方设置的按键接受、Esc 放弃）。输入框：光标静止多久后触发，单位毫秒，默认 10000（10 秒），最小 1000。修改后立即生效。',
+      'Toggle: enable ghost-text completion when the cursor is idle (use the key configured below to accept, Esc to dismiss). Field: idle delay in milliseconds, default 10000, minimum 1000. Changes apply immediately.'
     ).addToggle((toggle) => {
         toggle.setValue(this.plugin.settings.ghostEnabled !== false)
           .onChange(async (value) => {
@@ -1013,6 +1035,48 @@ class AIAssistantSettingTab extends PluginSettingTab {
               await this.plugin.saveSettings();
               this.plugin.rescheduleAllGhost();
             }
+          });
+      });
+
+    // 接受幽灵文本的按键：预设 + 自定义，改动立即生效（读取设置而非重建扩展）
+    const ACCEPT_KEY_PRESETS = ['Space', 'Tab', 'Enter', 'Ctrl+Enter', 'Alt+Enter', 'Shift+Enter'];
+    let acceptKeyInput = null;
+    const currentAcceptKey = String(this.plugin.settings.ghostAcceptKey || 'Space');
+    setBiDesc(
+      new Setting(containerEl).setName(bi('接受续写的按键', 'Accept completion key')),
+      '幽灵文本出现时按此键插入正文；Esc 始终用于放弃。可选预设，也可填任意键或组合键，如 Ctrl+Enter、Alt+E。',
+      'Key that inserts the ghost suggestion; Esc always dismisses it. Pick a preset or enter any key/combination, e.g. Ctrl+Enter or Alt+E.'
+    ).addDropdown((dropdown) => {
+        dropdown.addOption('Space', bi('空格 (Space)', 'Space'));
+        dropdown.addOption('Tab', 'Tab');
+        dropdown.addOption('Enter', 'Enter');
+        dropdown.addOption('Ctrl+Enter', 'Ctrl+Enter');
+        dropdown.addOption('Alt+Enter', 'Alt+Enter');
+        dropdown.addOption('Shift+Enter', 'Shift+Enter');
+        dropdown.addOption('custom', bi('自定义…', 'Custom...'));
+        dropdown.setValue(ACCEPT_KEY_PRESETS.includes(currentAcceptKey) ? currentAcceptKey : 'custom');
+        dropdown.onChange(async (value) => {
+          if (value === 'custom') {
+            if (acceptKeyInput) acceptKeyInput.setDisabled(false);
+            return;
+          }
+          this.plugin.settings.ghostAcceptKey = value;
+          if (acceptKeyInput) acceptKeyInput.setValue(value).setDisabled(true);
+          await this.plugin.saveSettings();
+          this.plugin.rescheduleAllGhost();
+        });
+      })
+      .addText((text) => {
+        acceptKeyInput = text;
+        text.setPlaceholder('Ctrl+Enter')
+          .setValue(currentAcceptKey)
+          .setDisabled(ACCEPT_KEY_PRESETS.includes(currentAcceptKey))
+          .onChange(async (value) => {
+            const key = value.trim();
+            if (!key) return;
+            this.plugin.settings.ghostAcceptKey = key;
+            await this.plugin.saveSettings();
+            this.plugin.rescheduleAllGhost();
           });
       });
 
