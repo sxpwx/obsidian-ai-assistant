@@ -31,3 +31,9 @@
   pointer-events: none;
   white-space: pre-wrap;
 }
+
+/* 设置面板：中文说明下方的英文说明 */
+.ai-setting-desc-en {
+  margin-top: 2px;
+  opacity: 0.75;
+}

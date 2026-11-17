@@ -18,12 +18,19 @@ const {
  */
 const PROVIDER_PRESETS = {
   openai: { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+  anthropic: {
+    name: 'Anthropic Claude',
+    baseUrl: 'https://api.anthropic.com/v1',
+    model: 'claude-sonnet-5-5',
+    api: 'anthropic',
+  },
+  grok: { name: 'xAI Grok', baseUrl: 'https://api.x.ai/v1', model: 'grok-4.6' },
   deepseek: { name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
-  qwen: { name: '通义千问', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
-  kimi: { name: 'Kimi（月之暗面）', baseUrl: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k' },
+  qwen: { name: '通义千问 Qwen', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
+  kimi: { name: 'Kimi 月之暗面', baseUrl: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k' },
   zhipu: { name: '智谱 GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
-  ollama: { name: 'Ollama（本地）', baseUrl: 'http://localhost:11434/v1', model: 'llama3' },
-  custom: { name: '自定义', baseUrl: '', model: '' },
+  ollama: { name: 'Ollama 本地', baseUrl: 'http://localhost:11434/v1', model: 'llama3' },
+  custom: { name: '自定义 Custom', baseUrl: '', model: '' },
 };
 
 /** 内置的选中文本处理动作，{{text}} 会被替换为选中内容 */
@@ -414,7 +421,14 @@ class AIAssistantPlugin extends Plugin {
     await this.saveData(this.settings);
   }
 
-  /** 调用 OpenAI 兼容的 /chat/completions 接口 */
+  /** 当前配置是否使用 Anthropic 原生 Messages API（与 OpenAI 格式不同） */
+  isAnthropicApi() {
+    const s = this.settings;
+    if (s.provider === 'anthropic') return true;
+    return /anthropic\.com/i.test((s.apiBaseUrl || '').trim());
+  }
+
+  /** 调用大模型接口：默认走 OpenAI 兼容的 /chat/completions，Anthropic 走 /messages */
   async callLLM(messages, options = {}) {
     const notice = options.notice !== false;
     const s = this.settings;
@@ -428,14 +442,46 @@ class AIAssistantPlugin extends Plugin {
       throw new Error('API 地址未配置');
     }
 
-    const url = `${this.normalizeBaseUrl(s.apiBaseUrl)}/chat/completions`;
-    const body = {
-      model: s.model,
-      messages: messages,
-      temperature: s.temperature,
-      max_tokens: s.maxTokens,
-      stream: false,
-    };
+    const isAnthropic = this.isAnthropicApi();
+    const base = this.normalizeBaseUrl(s.apiBaseUrl);
+    const url = isAnthropic ? `${base}/messages` : `${base}/chat/completions`;
+
+    let body;
+    let headers;
+    if (isAnthropic) {
+      // Anthropic Messages API：system 是顶层字段，消息里只能有 user/assistant
+      const systemText = messages
+        .filter((m) => m && m.role === 'system')
+        .map((m) => (typeof m.content === 'string' ? m.content : ''))
+        .filter(Boolean)
+        .join('\n\n');
+      body = {
+        model: s.model,
+        max_tokens: s.maxTokens,
+        temperature: s.temperature,
+        messages: messages
+          .filter((m) => m && m.role !== 'system')
+          .map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
+      };
+      if (systemText) body.system = systemText;
+      headers = {
+        'Content-Type': 'application/json',
+        'x-api-key': s.apiKey,
+        'anthropic-version': '2023-06-01',
+      };
+    } else {
+      body = {
+        model: s.model,
+        messages: messages,
+        temperature: s.temperature,
+        max_tokens: s.maxTokens,
+        stream: false,
+      };
+      headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${s.apiKey}`,
+      };
+    }
 
     // 对 429 / 5xx 等瞬时故障自动重试，避免偶发 502 直接失败
     const maxRetries = 2;
@@ -465,10 +511,7 @@ class AIAssistantPlugin extends Plugin {
       const requestPromise = requestUrl({
         url: url,
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${s.apiKey}`,
-        },
+        headers: headers,
         body: JSON.stringify(body),
         throw: false,
       }).then(
@@ -577,16 +620,19 @@ class AIAssistantPlugin extends Plugin {
     return content;
   }
 
-  /** 规范化 API 根地址：自动补全阿里云百炼兼容模式缺失的 /v1 */
+  /** 规范化 API 根地址：去掉端点后缀，并补全常见服务商缺失的 /v1 */
   normalizeBaseUrl(raw) {
     let url = (raw || '').trim().replace(/\/+$/, '');
+    url = url.replace(/\/chat\/completions$/i, '').replace(/\/messages$/i, '');
     if (/\/v1$/i.test(url)) return url;
+    if (/anthropic\.com$/i.test(url)) return url + '/v1';
     if (/dashscope\.aliyuncs\.com$/i.test(url)) {
       return url + '/compatible-mode/v1';
     }
     if (/compatible-mode$/i.test(url)) {
       return url + '/v1';
     }
+    if (/api\.x\.ai$/i.test(url)) return url + '/v1';
     return url;
   }
 
@@ -596,6 +642,15 @@ class AIAssistantPlugin extends Plugin {
     let d = data;
     if (!d.choices && d.data && typeof d.data === 'object') d = d.data;
     if (!d.choices && d.output && typeof d.output === 'object') d = d.output;
+
+    // Anthropic Messages API：content 为 [{ type: 'text', text: '...' }]
+    if (Array.isArray(d.content)) {
+      const joined = d.content
+        .map((part) => (typeof part === 'string' ? part : part && part.text))
+        .filter(Boolean)
+        .join('');
+      if (joined.trim()) return joined.trim();
+    }
 
     if (Array.isArray(d.choices) && d.choices.length) {
       const first = d.choices[0];
@@ -785,6 +840,23 @@ class ResultModal extends Modal {
   }
 }
 
+/** 中英双语文本：中文 / English */
+const bi = (zh, en) => `${zh} / ${en}`;
+
+/** 为设置项写入两行双语说明：第一行中文，第二行英文 */
+function setBiDesc(setting, zh, en) {
+  setting.setDesc('');
+  const el = setting.descEl;
+  if (!el) {
+    setting.setDesc(`${zh} ｜ ${en}`);
+    return setting;
+  }
+  el.empty();
+  el.createDiv({ text: zh });
+  el.createDiv({ text: en, cls: 'ai-setting-desc-en' });
+  return setting;
+}
+
 /** 插件设置面板 */
 class AIAssistantSettingTab extends PluginSettingTab {
   constructor(app, plugin) {
@@ -796,16 +868,21 @@ class AIAssistantSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    containerEl.createEl('h2', { text: 'AI 助手设置' });
+    containerEl.createEl('h2', { text: 'AI 助手设置 / DuoAI Assistant Settings' });
     containerEl.createEl('p', {
       cls: 'setting-item-description',
-      text: '支持任何与 OpenAI Chat Completions 兼容的接口。密钥仅保存在本地 Vault 中。',
+      text: '支持任何 OpenAI 兼容接口，以及 Anthropic Claude、xAI Grok。密钥仅保存在本地 Vault 中。',
+    });
+    containerEl.createEl('p', {
+      cls: 'setting-item-description ai-setting-desc-en',
+      text: 'Works with any OpenAI-compatible API, plus Anthropic Claude and xAI Grok. Your API key is stored locally in this vault only.',
     });
 
-    new Setting(containerEl)
-      .setName('服务商预设')
-      .setDesc('选择后自动填入 API 地址与模型名，仍可手动修改。')
-      .addDropdown((dropdown) => {
+    setBiDesc(
+      new Setting(containerEl).setName(bi('服务商预设', 'Provider preset')),
+      '选择后自动填入 API 地址与模型名，仍可手动修改。',
+      'Fills in the base URL and model automatically; you can still edit them.'
+    ).addDropdown((dropdown) => {
         for (const [key, preset] of Object.entries(PROVIDER_PRESETS)) {
           dropdown.addOption(key, preset.name);
         }
@@ -821,10 +898,11 @@ class AIAssistantSettingTab extends PluginSettingTab {
         });
       });
 
-    new Setting(containerEl)
-      .setName('API 地址 (Base URL)')
-      .setDesc('接口根地址，不要包含 /chat/completions。例如：https://api.openai.com/v1')
-      .addText((text) => {
+    setBiDesc(
+      new Setting(containerEl).setName(bi('API 地址', 'API base URL')),
+      '接口根地址，不要包含 /chat/completions 或 /messages。例如：https://api.openai.com/v1',
+      'Root URL without /chat/completions or /messages, e.g. https://api.openai.com/v1'
+    ).addText((text) => {
         text.inputEl.style.width = '100%';
         text.setPlaceholder('https://api.openai.com/v1')
           .setValue(this.plugin.settings.apiBaseUrl)
@@ -834,10 +912,11 @@ class AIAssistantSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
-      .setName('API Key')
-      .setDesc('鉴权密钥，仅保存在本地。')
-      .addText((text) => {
+    setBiDesc(
+      new Setting(containerEl).setName(bi('API Key', 'API key')),
+      '鉴权密钥，仅保存在本地。',
+      'API key, stored locally only.'
+    ).addText((text) => {
         text.inputEl.type = 'password';
         text.inputEl.style.width = '100%';
         text.setPlaceholder('sk-...')
@@ -848,10 +927,11 @@ class AIAssistantSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
-      .setName('模型名称')
-      .setDesc('例如 gpt-4o-mini、deepseek-chat、qwen-plus。')
-      .addText((text) => {
+    setBiDesc(
+      new Setting(containerEl).setName(bi('模型名称', 'Model')),
+      '例如 gpt-4o-mini、claude-sonnet-5-5、grok-4.6、deepseek-chat。',
+      'For example gpt-4o-mini, claude-sonnet-5-5, grok-4.6, deepseek-chat.'
+    ).addText((text) => {
         text.setPlaceholder('gpt-4o-mini')
           .setValue(this.plugin.settings.model)
           .onChange(async (value) => {
@@ -860,10 +940,11 @@ class AIAssistantSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
-      .setName('温度 (Temperature)')
-      .setDesc('数值越低越稳定，越高越有创造性。')
-      .addSlider((slider) => {
+    setBiDesc(
+      new Setting(containerEl).setName(bi('温度', 'Temperature')),
+      '数值越低越稳定，越高越有创造性。',
+      'Lower is more deterministic, higher is more creative.'
+    ).addSlider((slider) => {
         slider.setLimits(0, 2, 0.1)
           .setValue(this.plugin.settings.temperature)
           .setDynamicTooltip()
@@ -873,10 +954,11 @@ class AIAssistantSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
-      .setName('最大 Token 数')
-      .setDesc('单次回复的最大长度。')
-      .addText((text) => {
+    setBiDesc(
+      new Setting(containerEl).setName(bi('最大 Token 数', 'Max tokens')),
+      '单次回复的最大长度。',
+      'Maximum length of a single reply.'
+    ).addText((text) => {
         text.setPlaceholder('2048')
           .setValue(String(this.plugin.settings.maxTokens))
           .onChange(async (value) => {
@@ -888,10 +970,11 @@ class AIAssistantSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
-      .setName('请求超时（毫秒）')
-      .setDesc('超过该时间未完成则取消请求。')
-      .addText((text) => {
+    setBiDesc(
+      new Setting(containerEl).setName(bi('请求超时（毫秒）', 'Request timeout (ms)')),
+      '超过该时间未完成则取消请求。',
+      'Cancel the request if it takes longer than this.'
+    ).addText((text) => {
         text.setPlaceholder('60000')
           .setValue(String(this.plugin.settings.timeoutMs))
           .onChange(async (value) => {
@@ -904,10 +987,11 @@ class AIAssistantSettingTab extends PluginSettingTab {
       });
 
     let delayText;
-    new Setting(containerEl)
-      .setName('自动续写等待时间')
-      .setDesc('开关：是否启用光标停留自动续写（启用后在光标处显示半透明建议，Tab 接受、Esc 放弃）。输入框：光标静止多久后触发，单位毫秒，默认 10000（10 秒），最小 1000。修改后立即生效。')
-      .addToggle((toggle) => {
+    setBiDesc(
+      new Setting(containerEl).setName(bi('自动续写等待时间', 'Auto-completion delay')),
+      '开关：是否启用光标停留自动续写（启用后在光标处显示半透明建议，Tab 接受、Esc 放弃）。输入框：光标静止多久后触发，单位毫秒，默认 10000（10 秒），最小 1000。修改后立即生效。',
+      'Toggle: enable ghost-text completion when the cursor is idle (Tab to accept, Esc to dismiss). Field: idle delay in milliseconds, default 10000, minimum 1000. Changes apply immediately.'
+    ).addToggle((toggle) => {
         toggle.setValue(this.plugin.settings.ghostEnabled !== false)
           .onChange(async (value) => {
             this.plugin.settings.ghostEnabled = value;
@@ -931,10 +1015,11 @@ class AIAssistantSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
-      .setName('系统提示词')
-      .setDesc('设定 AI 的角色与回答风格。')
-      .addTextArea((textarea) => {
+    setBiDesc(
+      new Setting(containerEl).setName(bi('系统提示词', 'System prompt')),
+      '设定 AI 的角色与回答风格。',
+      'Sets the role and tone of the assistant.'
+    ).addTextArea((textarea) => {
         textarea.inputEl.rows = 4;
         textarea.inputEl.style.width = '100%';
         textarea.setValue(this.plugin.settings.systemPrompt)
@@ -944,24 +1029,25 @@ class AIAssistantSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
-      .setName('测试连接')
-      .setDesc('发送一条简单消息，验证配置是否正确。')
-      .addButton((button) => {
-        button.setButtonText('测试');
+    setBiDesc(
+      new Setting(containerEl).setName(bi('测试连接', 'Test connection')),
+      '发送一条简单消息，验证配置是否正确。',
+      'Sends a simple message to verify the configuration.'
+    ).addButton((button) => {
+        button.setButtonText(bi('测试', 'Test'));
         button.onClick(async () => {
           button.setDisabled(true);
-          button.setButtonText('测试中...');
+          button.setButtonText(bi('测试中...', 'Testing...'));
           try {
             const answer = await this.plugin.callLLM([
               { role: 'user', content: '请只回复：连接成功' },
             ]);
-            new Notice(`连接成功：${String(answer == null ? '' : answer).slice(0, 60)}`);
+            new Notice(`${bi('连接成功', 'Connected')}：${String(answer == null ? '' : answer).slice(0, 60)}`);
           } catch (e) {
-            new Notice(`连接失败：${e.message}`);
+            new Notice(`${bi('连接失败', 'Failed')}：${e.message}`);
           } finally {
             button.setDisabled(false);
-            button.setButtonText('测试');
+            button.setButtonText(bi('测试', 'Test'));
           }
         });
       });
