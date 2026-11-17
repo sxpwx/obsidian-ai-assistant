@@ -1,7 +1,7 @@
 {
   "id": "duoai-assistant",
   "name": "DuoAI Assistant",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "minAppVersion": "1.4.0",
   "description": "Generate continuations, summaries, translations, and polished text with any custom OpenAI-compatible LLM API.",
   "author": "sxpwx",
